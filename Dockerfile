@@ -10,7 +10,7 @@
 # TARGETOS/TARGETARCH are populated automatically by buildx; a plain
 # `docker build` on amd64/arm64 hosts also works via BuildKit's default args.
 
-FROM golang:1.25-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./
