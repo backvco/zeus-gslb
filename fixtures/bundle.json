@@ -1,0 +1,32 @@
+{
+  "protocolVersion": 1,
+  "domain": "z-backv.local",
+  "generatedAt": "2026-07-12T00:00:00.000Z",
+  "contentHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd",
+  "records": [
+    {
+      "fqdn": "mysql-01-rw.prod.app1.z-backv.local",
+      "ttl": 7,
+      "state": "ok",
+      "answers": [
+        { "ip": "10.0.5.5", "port": 443 },
+        { "ip": "10.0.5.6", "port": 443 },
+        { "ip": "10.0.5.7", "port": 443 }
+      ]
+    },
+    {
+      "fqdn": "shared-cache.app1.z-backv.local",
+      "ttl": 5,
+      "state": "degraded",
+      "answers": [
+        { "ip": "10.0.9.9", "port": 6379 }
+      ]
+    },
+    {
+      "fqdn": "down-service.app1.z-backv.local",
+      "ttl": 5,
+      "state": "failed-closed",
+      "answers": []
+    }
+  ]
+}
