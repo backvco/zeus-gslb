@@ -19,13 +19,39 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# DO NOT give these ARGs default values. buildx pre-declares TARGETOS/TARGETARCH
+# and populates them per target platform — but ONLY if we redeclare them bare.
+# Writing `ARG TARGETARCH=amd64` makes the default win, so `--platform
+# linux/arm64` still compiles GOARCH=amd64 and buildx then publishes that amd64
+# binary under the arm64 entry of the manifest list. The manifest is correct and
+# the content is a lie; arm64 nodes (GKE T2A, Graviton) die with `exec format
+# error`. That is exactly what shipped in 0.1.0.
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ENV CGO_ENABLED=0
+RUN test -n "$TARGETARCH" || { echo "FATAL: TARGETARCH empty — build with buildx"; exit 1; }
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -ldflags "-s -w -X main.version=${VERSION}" \
     -o /out/zeus-gslb ./cmd/zeus-gslb
+
+# Assert the binary we just produced really is for the platform this image will
+# CLAIM to be. Checked against TARGETPLATFORM (not TARGETARCH) on purpose: the
+# 0.1.0 bug was TARGETARCH silently holding the wrong value, so an assertion
+# phrased in terms of TARGETARCH would have compared the mistake against itself
+# and passed. TARGETPLATFORM is the platform buildx will actually file this
+# image under in the manifest list, so it is the only trustworthy source here.
+#
+# `go version -m` reports the settings baked into the binary — what we BUILT —
+# with no QEMU and no need to execute a foreign-arch binary.
+ARG TARGETPLATFORM
+RUN set -eu; \
+    want="${TARGETPLATFORM#*/}"; \
+    got="$(go version -m /out/zeus-gslb | sed -n 's/.*[[:space:]]GOARCH=\([a-z0-9]*\).*/\1/p' | head -1)"; \
+    [ -n "$got" ] || { echo "FATAL: could not read GOARCH from binary"; exit 1; }; \
+    [ "$got" = "$want" ] || { \
+      echo "FATAL: publishing as '$TARGETPLATFORM' but binary is GOARCH=$got"; exit 1; }; \
+    echo "arch OK: $TARGETPLATFORM carries GOARCH=$got"
 
 # distroless/static: no libc, no shell — the binary above is 100% static so
 # this is sufficient (and smaller/safer than distroless/base or alpine).

@@ -12,6 +12,15 @@ on:
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
+# Tagging a release also pushes main, so two runs would otherwise start seconds
+# apart and race each other through the SAME `type=gha` build cache. That is the
+# leading suspect for how 0.1.0 shipped an amd64 binary under its arm64 manifest
+# entry. Serialize instead of cancelling: a release build must never be killed
+# half-published.
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -68,3 +77,29 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Trust, then verify. The Dockerfile now asserts GOARCH==TARGETARCH at
+      # build time, but that only proves each build was self-consistent — it
+      # cannot prove the manifest entry a node will PULL for its architecture
+      # actually contains a binary for that architecture. This pulls each
+      # published variant back out of the registry and reads the ELF header of
+      # the binary inside it. It is the check that would have caught 0.1.0
+      # before it ever reached a cluster.
+      - name: Verify each published arch carries a matching binary
+        run: |
+          set -euo pipefail
+          for entry in amd64:x86-64 arm64:aarch64; do
+            arch="${entry%%:*}"; want="${entry##*:}"
+            echo "::group::linux/$arch"
+            # --platform makes buildx resolve the manifest exactly as a node would.
+            cid=$(docker create --platform "linux/$arch" "$IMAGE:${{ steps.meta.outputs.version }}")
+            docker cp "$cid:/usr/local/bin/zeus-gslb" ./zeus-gslb-$arch
+            docker rm -f "$cid" >/dev/null
+            got=$(file -b ./zeus-gslb-$arch)
+            echo "$got"
+            case "$got" in
+              *"$want"*) echo "OK: linux/$arch carries a $want binary" ;;
+              *) echo "FATAL: linux/$arch manifest entry carries: $got (expected $want)"; exit 1 ;;
+            esac
+            echo "::endgroup::"
+          done
